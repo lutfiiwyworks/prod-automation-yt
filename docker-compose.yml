@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: yt-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./tmp:/app/tmp
+      - ./fonts:/app/fonts
+    environment:
+      - TZ=Asia/Jakarta

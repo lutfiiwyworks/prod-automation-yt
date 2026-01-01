@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+opencv-python-headless
+numpy
+mediapipe
+faster-whisper
+torch
+yt-dlp
+python-multipart
+pydantic
+ffmpeg-python
