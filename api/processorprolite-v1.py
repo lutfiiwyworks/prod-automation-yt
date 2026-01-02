@@ -12,7 +12,6 @@ import tempfile
 # ⚙️ CONFIGURATION (FINAL)
 # =========================
 
-# AUTO TEMP DIR (Windows / Docker aman)
 TEMP_DIR = tempfile.gettempdir()
 
 TARGET_W, TARGET_H = 1080, 1920
@@ -20,7 +19,7 @@ MAX_ZOOM = 1.05
 
 FRAME_SKIP = 2
 MOUTH_OPEN_THRESHOLD = 4.0
-MIN_LOCK_FRAMES = 36  # ~1.2 detik
+MIN_LOCK_FRAMES = 36
 
 AUDIO_FILTERS = (
     "highpass=f=80,"
@@ -36,7 +35,6 @@ AUDIO_FILTERS = (
 # =========================
 
 def ffmpeg_escape_path(path: str) -> str:
-    # Convert Windows path to FFmpeg-safe path
     return path.replace("\\", "/").replace(":", "\\:")
 
 def format_time_ass(seconds):
@@ -82,8 +80,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 text = w.word.strip().upper()
 
                 anim = r"{\fscx80\fscy80\t(0,80,\fscx100\fscy100)}"
-                line = f"Dialogue: 0,{start},{end},Spk0,,0,0,0,,{anim}{text}\n"
-                f.write(line)
+                f.write(
+                    f"Dialogue: 0,{start},{end},Spk0,,0,0,0,,{anim}{text}\n"
+                )
 
     print(f"✅ Subtitle saved: {output_subs}")
 
@@ -108,7 +107,6 @@ class CinemaCam:
                 return
             self.active = idx
             self.last_switch = self.frame
-
         self.tx, self.ty = target
 
     def move(self):
@@ -117,7 +115,6 @@ class CinemaCam:
         dist = math.hypot(dx, dy)
         if dist < 10:
             return self.cx, self.cy
-
         smooth = min(0.15, max(0.03, dist / 800))
         self.cx += dx * smooth
         self.cy += dy * smooth
@@ -128,12 +125,13 @@ class CinemaCam:
 # =========================
 
 def main():
-    if len(sys.argv) < 3:
-        print("❌ Usage: python script.py <input.mp4> <output.mp4>")
+    if len(sys.argv) < 4:
+        print("Usage: python script.py <video.mp4> <audio.wav> <output.mp4>")
         sys.exit(1)
 
     input_vid = sys.argv[1]
-    output_vid = sys.argv[2]
+    input_audio = sys.argv[2]
+    output_vid = sys.argv[3]
 
     if not os.path.exists(input_vid):
         print(f"❌ Input not found: {input_vid}")
@@ -141,7 +139,6 @@ def main():
 
     base = os.path.splitext(os.path.basename(output_vid))[0]
 
-    temp_audio = os.path.join(TEMP_DIR, f"{base}.wav")
     temp_subs = os.path.join(TEMP_DIR, f"{base}.ass")
     temp_vis = os.path.join(TEMP_DIR, f"{base}_vis.mp4")
     proxy_vid = os.path.join(TEMP_DIR, f"{base}_proxy.mp4")
@@ -162,17 +159,10 @@ def main():
     except subprocess.CalledProcessError:
         track_src = input_vid
 
-    # 1. Extract audio
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", input_vid, "-vn",
-         "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", temp_audio],
-        check=True
-    )
+    # 1. Subs (PAKAI AUDIO EXTERNAL)
+    generate_viral_subs(input_audio, temp_subs)
 
-    # 2. Subs
-    generate_viral_subs(temp_audio, temp_subs)
-
-    # 3. Smart crop
+    # 2. Smart crop
     print("[2/4] Smart tracking...")
     cap = cv2.VideoCapture(track_src)
     fw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -235,44 +225,37 @@ def main():
         y1 = max(0, min(int(y_adj - crop_h / 2), fh - crop_h))
 
         crop = frame[y1:y1+crop_h, x1:x1+crop_w]
-        final = cv2.resize(crop, (TARGET_W, TARGET_H))
-        out.write(final)
-
+        out.write(cv2.resize(crop, (TARGET_W, TARGET_H)))
         idx += 1
 
     cap.release()
     out.release()
 
-    # 4. Final render
+    # 3. Final render
     print("[3/4] Final Rendering...")
 
     ass_path = ffmpeg_escape_path(temp_subs)
 
-    vf_chain = (
-        "unsharp=5:5:1.0:5:5:0.0,"
-        f"ass='{ass_path}',"
-        "tblend=all_mode=average,"
-        "noise=alls=5:allf=t+u"
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-i", temp_vis,
+            "-i", input_audio,
+            "-filter_complex",
+            f"[0:v]unsharp=5:5:1.0:5:5:0.0,ass='{ass_path}',tblend=all_mode=average,noise=alls=5:allf=t+u[v];"
+            f"[1:a]{AUDIO_FILTERS}[a]",
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-crf", "18",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            output_vid
+        ],
+        check=True
     )
-
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", temp_vis,
-        "-i", input_vid,
-        "-filter_complex", f"[0:v]{vf_chain}[v];[1:a]{AUDIO_FILTERS}[a]",
-        "-map", "[v]", "-map", "[a]",
-        "-c:v", "libx264", "-preset", "slow", "-crf", "18",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "192k",
-        output_vid
-    ]
-
-    subprocess.run(cmd, check=True)
 
     print(f"✅ DONE: {output_vid}")
 
-    # Cleanup
-    for f in (temp_audio, temp_subs, temp_vis, proxy_vid):
+    for f in (temp_subs, temp_vis, proxy_vid):
         if os.path.exists(f):
             os.remove(f)
 
