@@ -35,10 +35,10 @@ def read_state(job_id):
 
 
 # ======================
-# DOWNLOAD DRIVE (PUBLIC)
+# DOWNLOAD DRIVE (PUBLIC LINK)
 # ======================
 def download_drive(url, out_path):
-    with requests.get(url, stream=True, timeout=60) as r:
+    with requests.get(url, stream=True, timeout=120) as r:
         r.raise_for_status()
         with open(out_path, "wb") as f:
             for chunk in r.iter_content(1024 * 1024):
@@ -56,20 +56,36 @@ def cut_video(src, out, start, end):
 
     subprocess.run(
         [
-            "ffmpeg",
-            "-y",
-            "-ss",
-            str(start),
-            "-i",
-            src,
-            "-t",
-            str(dur),
-            "-c:v",
-            "libx264",
-            "-preset",
-            "fast",
-            "-c:a",
-            "aac",
+            "ffmpeg", "-y",
+            "-ss", str(start),
+            "-i", src,
+            "-t", str(dur),
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-pix_fmt", "yuv420p",
+            out,
+        ],
+        check=True,
+    )
+
+
+# ======================
+# CUT AUDIO (MASTER AUDIO)
+# ======================
+def cut_audio(src, out, start, end):
+    dur = end - start
+    if dur <= 0:
+        raise ValueError("absolute_end must be greater than absolute_start")
+
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-ss", str(start),
+            "-i", src,
+            "-t", str(dur),
+            "-ar", "16000",
+            "-ac", "1",
+            "-c:a", "pcm_s16le",
             out,
         ],
         check=True,
@@ -78,13 +94,17 @@ def cut_video(src, out, start, end):
 
 # ======================
 # RUN PROCESSORPROLITE
+# processorprolite-v1.py
+# expects:
+#   python script.py <input_video> <input_audio> <output_video>
 # ======================
-def run_processor(input_video, output_video):
+def run_processor(input_video, input_audio, output_video):
     subprocess.run(
         [
             PYTHON_BIN,
             PROCESSOR_SCRIPT,
             input_video,
+            input_audio,
             output_video,
         ],
         check=True,
@@ -128,24 +148,30 @@ def upload_to_drive(file_path):
 # ======================
 # MAIN JOB
 # ======================
-def process_job(job_id, drive_url, start, end):
-    raw = f"{TMP_DIR}/{job_id}_raw.mp4"
-    cut = f"{TMP_DIR}/{job_id}_cut.mp4"
+def process_job(job_id, video_url, audio_url, start, end):
+    video_raw = f"{TMP_DIR}/{job_id}_video_raw.mp4"
+    video_cut = f"{TMP_DIR}/{job_id}_video_cut.mp4"
+
+    audio_raw = f"{TMP_DIR}/{job_id}_audio_raw.wav"
+    audio_cut = f"{TMP_DIR}/{job_id}_audio_cut.wav"
+
     final = f"{TMP_DIR}/{job_id}_final.mp4"
 
     try:
         write_state(job_id, "running")
 
-        # 1️⃣ download video
-        download_drive(drive_url, raw)
+        # 1️⃣ download video & audio (FULL)
+        download_drive(video_url, video_raw)
+        download_drive(audio_url, audio_raw)
 
-        # 2️⃣ cut
-        cut_video(raw, cut, start, end)
+        # 2️⃣ cut video & audio (TIMESTAMP SAMA)
+        cut_video(video_raw, video_cut, start, end)
+        cut_audio(audio_raw, audio_cut, start, end)
 
-        # 3️⃣ run processorprolite
-        run_processor(cut, final)
+        # 3️⃣ run processor (subtitle + tracking + final mux)
+        run_processor(video_cut, audio_cut, final)
 
-        # 4️⃣ upload to Google Drive
+        # 4️⃣ upload result to Drive
         drive_result = upload_to_drive(final)
 
         write_state(job_id, "done")
@@ -157,7 +183,12 @@ def process_job(job_id, drive_url, start, end):
         raise e
 
     finally:
-        # cleanup temp
-        for p in [raw, cut]:
+        # cleanup temp files
+        for p in [
+            video_raw,
+            video_cut,
+            audio_raw,
+            audio_cut,
+        ]:
             if os.path.exists(p):
                 os.remove(p)

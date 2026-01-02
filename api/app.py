@@ -8,9 +8,11 @@ app = FastAPI()
 
 class ProcessRequest(BaseModel):
     job_id: str
-    drive_url: str
+    video_url: str
+    audio_url: str
     absolute_start: float
     absolute_end: float
+
 
 
 @app.post("/process")
