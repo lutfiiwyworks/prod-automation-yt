@@ -1,26 +1,50 @@
 import os
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import FileResponse
 
 from services.processor import run_processor
 
 app = FastAPI(
     title="ProcessorProLite API",
-    version="1.0.0"
+    version="1.1.0"
 )
 
-class ProcessRequest(BaseModel):
-    input_path: str
-    output_path: str
+TMP_DIR = "/tmp"
+
 
 @app.post("/process")
-def process(req: ProcessRequest):
-    if not os.path.exists(req.input_path):
-        raise HTTPException(status_code=400, detail="Input file not found")
+async def process(file: UploadFile = File(...)):
+    """
+    Receive video as multipart/form-data (binary),
+    process it, and return processed video as binary.
+    """
 
-    run_processor(req.input_path, req.output_path)
+    # --- filename from n8n binary metadata ---
+    video_file = file.filename or "input.mp4"
 
-    return {
-        "status": "ok",
-        "output": req.output_path
-    }
+    input_path = os.path.join(TMP_DIR, video_file)
+    output_path = os.path.join(TMP_DIR, f"output_{video_file}")
+
+    try:
+        # --- save uploaded file ---
+        with open(input_path, "wb") as f:
+            f.write(await file.read())
+
+        # --- run processor ---
+        run_processor(input_path, output_path)
+
+        if not os.path.exists(output_path):
+            raise HTTPException(
+                status_code=500,
+                detail="Processing failed: output not generated"
+            )
+
+        # --- return processed video ---
+        return FileResponse(
+            output_path,
+            media_type="video/mp4",
+            filename=f"output_{video_file}"
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
