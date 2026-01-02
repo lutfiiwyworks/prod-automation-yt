@@ -18,10 +18,7 @@ def process(req: ProcessRequest):
     if not os.path.exists(req.input_path):
         raise HTTPException(status_code=400, detail="Input file not found")
 
-    try:
-        run_processor(req.input_path, req.output_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    run_processor(req.input_path, req.output_path)
 
     return {
         "status": "ok",

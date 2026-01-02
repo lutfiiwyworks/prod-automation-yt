@@ -1,10 +1,7 @@
 import os
 
-DATA_DIR = "/app/data"
+DATA_DIR = "/tmp"
 
-INPUT_DIR = os.path.join(DATA_DIR, "input")
-OUTPUT_DIR = os.path.join(DATA_DIR, "output")
-TMP_DIR = os.path.join(DATA_DIR, "tmp")
-
-for d in (INPUT_DIR, OUTPUT_DIR, TMP_DIR):
-    os.makedirs(d, exist_ok=True)
+INPUT_DIR = DATA_DIR
+OUTPUT_DIR = DATA_DIR
+TMP_DIR = DATA_DIR
