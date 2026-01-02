@@ -17,12 +17,14 @@ class ProcessRequest(BaseModel):
 
 @app.post("/process")
 def process(req: ProcessRequest):
-    result = process_job(
-        req.job_id,
-        req.drive_url,
-        req.absolute_start,
-        req.absolute_end,
-    )
+  result = process_job(
+    req.job_id,
+    req.video_url,
+    req.audio_url,
+    req.absolute_start,
+    req.absolute_end,
+)
+
 
     # LANGSUNG RETURN HASIL
     return {
