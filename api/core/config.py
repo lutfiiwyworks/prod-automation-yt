@@ -1,7 +1,5 @@
 import os
 
-DATA_DIR = "/tmp"
-
-INPUT_DIR = DATA_DIR
-OUTPUT_DIR = DATA_DIR
-TMP_DIR = DATA_DIR
+TMP_DIR = "/app/tmp"
+PYTHON_BIN = "python"
+PROCESSOR_SCRIPT = "processorprolite-v1.py"

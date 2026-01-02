@@ -1,50 +1,32 @@
-import os
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, BackgroundTasks
+from pydantic import BaseModel
+from services.processor import process_job, read_state
 
-from services.processor import run_processor
+app = FastAPI()
 
-app = FastAPI(
-    title="ProcessorProLite API",
-    version="1.1.0"
-)
-
-TMP_DIR = "/tmp"
-
+class ProcessRequest(BaseModel):
+    job_id: str
+    drive_url: str
+    absolute_start: float
+    absolute_end: float
 
 @app.post("/process")
-async def process(file: UploadFile = File(...)):
-    """
-    Receive video as multipart/form-data (binary),
-    process it, and return processed video as binary.
-    """
+def process(req: ProcessRequest, bg: BackgroundTasks):
+    state = read_state(req.job_id)
 
-    # --- filename from n8n binary metadata ---
-    video_file = file.filename or "input.mp4"
+    if state == "running":
+        return {"status": "running", "job_id": req.job_id}
 
-    input_path = os.path.join(TMP_DIR, video_file)
-    output_path = os.path.join(TMP_DIR, f"output_{video_file}")
+    if state == "done":
+        return {"status": "done", "job_id": req.job_id}
 
-    try:
-        # --- save uploaded file ---
-        with open(input_path, "wb") as f:
-            f.write(await file.read())
+    # error / belum ada → jalan ulang
+    bg.add_task(
+        process_job,
+        req.job_id,
+        req.drive_url,
+        req.absolute_start,
+        req.absolute_end
+    )
 
-        # --- run processor ---
-        run_processor(input_path, output_path)
-
-        if not os.path.exists(output_path):
-            raise HTTPException(
-                status_code=500,
-                detail="Processing failed: output not generated"
-            )
-
-        # --- return processed video ---
-        return FileResponse(
-            output_path,
-            media_type="video/mp4",
-            filename=f"output_{video_file}"
-        )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "accepted", "job_id": req.job_id}
