@@ -14,23 +14,18 @@ class ProcessRequest(BaseModel):
 
 
 @app.post("/process")
-def process(req: ProcessRequest, bg: BackgroundTasks):
-    state = read_state(req.job_id)
+def process(req: ProcessRequest):
+    result = process_job(
+        req.job_id,
+        req.drive_url,
+        req.absolute_start,
+        req.absolute_end,
+    )
 
-    if state == "running":
-        return {"status": "running", "job_id": req.job_id}
+    # LANGSUNG RETURN HASIL
+    return {
+        "job_id": req.job_id,
+        "drive_file_id": result["file_id"],
+        "drive_link": result["webViewLink"],
+    }
 
-    if state == "done":
-        return {"status": "done", "job_id": req.job_id}
-
-    def _run():
-        process_job(
-            req.job_id,
-            req.drive_url,
-            req.absolute_start,
-            req.absolute_end,
-        )
-
-    bg.add_task(_run)
-
-    return {"status": "accepted", "job_id": req.job_id}

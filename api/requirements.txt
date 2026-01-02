@@ -1,15 +1,27 @@
+# ======================
+# Web API
+# ======================
 fastapi
 uvicorn
+requests
+
+# ======================
+# Video / Computer Vision
+# ======================
 opencv-python-headless
 numpy
-mediapipe
+mediapipe==0.10.8
+
+# ======================
+# Speech / Subtitle
+# ======================
 faster-whisper
 torch
-yt-dlp
-python-multipart
-pydantic
-ffmpeg-python
-requests
+torchaudio
+
+# ======================
+# Google Drive API
+# ======================
 google-api-python-client
 google-auth
 google-auth-httplib2
