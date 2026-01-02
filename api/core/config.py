@@ -1,7 +1,10 @@
 import os
 
-# 🔒 FIXED PATH (DOCKER SAFE)
-TMP_DIR = "/app/tmp"
-AUDIO_CACHE = os.path.join(TMP_DIR, "audio_master")
+DATA_DIR = "/app/data"
 
-os.makedirs(AUDIO_CACHE, exist_ok=True)
+INPUT_DIR = os.path.join(DATA_DIR, "input")
+OUTPUT_DIR = os.path.join(DATA_DIR, "output")
+TMP_DIR = os.path.join(DATA_DIR, "tmp")
+
+for d in (INPUT_DIR, OUTPUT_DIR, TMP_DIR):
+    os.makedirs(d, exist_ok=True)

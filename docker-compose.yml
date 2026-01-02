@@ -10,7 +10,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./tmp:/app/tmp
+      - ./data:/app/data
       - ./fonts:/app/fonts
     environment:
       - TZ=Asia/Jakarta
