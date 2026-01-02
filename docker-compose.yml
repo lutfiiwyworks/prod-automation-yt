@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   api:
     build:
@@ -10,8 +8,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data
-      - ./tmp:/app/tmp        # 🔥 INI WAJIB
-      - ./fonts:/app/fonts
+      - ./tmp:/app/tmp      # ✅ boleh
+      - ./data:/app/data    # ✅ boleh
     environment:
       - TZ=Asia/Jakarta

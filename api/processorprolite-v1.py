@@ -1,15 +1,20 @@
-import sys
+#!/usr/bin/env python3
 import os
-import subprocess
+import sys
 import math
+import subprocess
+import tempfile
+
+# 🔒 WAJIB UNTUK DOCKER / VPS
+os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
+
 import cv2
 import numpy as np
 import mediapipe as mp
 from faster_whisper import WhisperModel
-import tempfile
 
 # =========================
-# ⚙️ CONFIGURATION (FINAL)
+# ⚙️ CONFIGURATION (FINAL PROD)
 # =========================
 
 TEMP_DIR = tempfile.gettempdir()
@@ -34,8 +39,21 @@ AUDIO_FILTERS = (
 # 🔧 HELPERS
 # =========================
 
-def ffmpeg_escape_path(path: str) -> str:
-    return path.replace("\\", "/").replace(":", "\\:")
+def run_cmd(cmd, label):
+    print(f"[CMD] {label}")
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+    if proc.returncode != 0:
+        print(f"❌ {label} FAILED")
+        print("STDOUT:\n", proc.stdout)
+        print("STDERR:\n", proc.stderr)
+        sys.exit(1)
+    return proc
+
 
 def format_time_ass(seconds):
     h = int(seconds // 3600)
@@ -70,7 +88,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     with open(output_subs, "w", encoding="utf-8") as f:
         f.write(ass_header)
-
         for seg in segments:
             for w in seg.words:
                 if not w.word.strip():
@@ -78,7 +95,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 start = format_time_ass(w.start)
                 end = format_time_ass(w.end)
                 text = w.word.strip().upper()
-
                 anim = r"{\fscx80\fscy80\t(0,80,\fscx100\fscy100)}"
                 f.write(
                     f"Dialogue: 0,{start},{end},Spk0,,0,0,0,,{anim}{text}\n"
@@ -126,16 +142,17 @@ class CinemaCam:
 
 def main():
     if len(sys.argv) < 4:
-        print("Usage: python script.py <video.mp4> <audio.wav> <output.mp4>")
+        print("Usage: python processorprolite-v1.py <video.mp4> <audio.wav> <output.mp4>")
         sys.exit(1)
 
     input_vid = sys.argv[1]
     input_audio = sys.argv[2]
     output_vid = sys.argv[3]
 
-    if not os.path.exists(input_vid):
-        print(f"❌ Input not found: {input_vid}")
-        sys.exit(1)
+    for f in (input_vid, input_audio):
+        if not os.path.exists(f):
+            print(f"❌ Input not found: {f}")
+            sys.exit(1)
 
     base = os.path.splitext(os.path.basename(output_vid))[0]
 
@@ -145,21 +162,26 @@ def main():
 
     print(f"🚀 PROCESSING: {input_vid}")
 
-    # 0. Proxy for OpenCV
+    # 0. Proxy
     print("[0/4] Preparing proxy video...")
     try:
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", input_vid, "-an",
-             "-c:v", "libx264", "-preset", "ultrafast", proxy_vid],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+        run_cmd(
+            [
+                "ffmpeg", "-y",
+                "-i", input_vid,
+                "-an",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                proxy_vid
+            ],
+            "PROXY GENERATION"
         )
         track_src = proxy_vid
-    except subprocess.CalledProcessError:
+    except SystemExit:
+        print("⚠️ Proxy failed, fallback to original")
         track_src = input_vid
 
-    # 1. Subs (PAKAI AUDIO EXTERNAL)
+    # 1. Subs
     generate_viral_subs(input_audio, temp_subs)
 
     # 2. Smart crop
@@ -175,6 +197,8 @@ def main():
         fps,
         (TARGET_W, TARGET_H)
     )
+    if not out.isOpened():
+        raise RuntimeError("VideoWriter failed to open")
 
     face_mesh = mp.solutions.face_mesh.FaceMesh(
         max_num_faces=5,
@@ -224,7 +248,7 @@ def main():
         x1 = max(0, min(int(cx - crop_w / 2), fw - crop_w))
         y1 = max(0, min(int(y_adj - crop_h / 2), fh - crop_h))
 
-        crop = frame[y1:y1+crop_h, x1:x1+crop_w]
+        crop = frame[y1:y1 + crop_h, x1:x1 + crop_w]
         out.write(cv2.resize(crop, (TARGET_W, TARGET_H)))
         idx += 1
 
@@ -234,23 +258,28 @@ def main():
     # 3. Final render
     print("[3/4] Final Rendering...")
 
-    ass_path = ffmpeg_escape_path(temp_subs)
+    ass_path = temp_subs.replace("'", r"\'")
 
-    subprocess.run(
+    run_cmd(
         [
             "ffmpeg", "-y",
             "-i", temp_vis,
             "-i", input_audio,
             "-filter_complex",
-            f"[0:v]unsharp=5:5:1.0:5:5:0.0,ass='{ass_path}',tblend=all_mode=average,noise=alls=5:allf=t+u[v];"
+            f"[0:v]unsharp=5:5:1.0:5:5:0.0,"
+            f"ass='{ass_path}',"
+            f"tblend=all_mode=average,noise=alls=5:allf=t+u[v];"
             f"[1:a]{AUDIO_FILTERS}[a]",
-            "-map", "[v]", "-map", "[a]",
-            "-c:v", "libx264", "-crf", "18",
+            "-map", "[v]",
+            "-map", "[a]",
+            "-c:v", "libx264",
+            "-crf", "18",
             "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:a", "aac",
+            "-b:a", "192k",
             output_vid
         ],
-        check=True
+        "FINAL RENDER"
     )
 
     print(f"✅ DONE: {output_vid}")

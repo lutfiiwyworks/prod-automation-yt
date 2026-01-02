@@ -6,10 +6,14 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     git \
+    fontconfig \
     libgl1 \
     libglib2.0-0 \
-    fontconfig \
     && rm -rf /var/lib/apt/lists/*
+
+# copy fonts ke FONTCONFIG PATH
+COPY fonts /usr/share/fonts/truetype/custom
+RUN fc-cache -fv
 
 # python deps
 COPY api/requirements.txt .
@@ -18,9 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # copy app
 COPY api /app
 
-# 🔥 COPY FONT (INI BARU)
-COPY fonts /app/fonts
-
 ENV PYTHONPATH=/app
+ENV TZ=Asia/Jakarta
 
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
