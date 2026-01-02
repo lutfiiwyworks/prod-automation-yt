@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI
 from pydantic import BaseModel
 
 from services.processor import process_job, read_state
@@ -14,22 +14,18 @@ class ProcessRequest(BaseModel):
     absolute_end: float
 
 
-
 @app.post("/process")
 def process(req: ProcessRequest):
-  result = process_job(
-    req.job_id,
-    req.video_url,
-    req.audio_url,
-    req.absolute_start,
-    req.absolute_end,
-)
+    result = process_job(
+        req.job_id,
+        req.video_url,
+        req.audio_url,
+        req.absolute_start,
+        req.absolute_end,
+    )
 
-
-    # LANGSUNG RETURN HASIL
     return {
         "job_id": req.job_id,
         "drive_file_id": result["file_id"],
         "drive_link": result["webViewLink"],
     }
-
