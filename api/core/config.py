@@ -1,5 +1,12 @@
 import os
-
 TMP_DIR = "/app/tmp"
+
 PYTHON_BIN = "python"
 PROCESSOR_SCRIPT = "processorprolite-v1.py"
+
+# Google Drive
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
+DRIVE_CREDENTIALS_PATH = "/app/api/credentials/drive_sa.json"
+
+# default upload folder (isi folder ID Drive lu)
+DRIVE_UPLOAD_FOLDER_ID = "final"

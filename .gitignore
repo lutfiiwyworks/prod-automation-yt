@@ -1,0 +1,8 @@
+# credentials
+api/credentials/
+*.json
+
+# temp
+tmp/
+*.mp4
+*.state
