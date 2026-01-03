@@ -2,16 +2,19 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# system deps
+# system deps + rclone
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     git \
     fontconfig \
     libgl1 \
     libglib2.0-0 \
+    ca-certificates \
+    curl \
+    && curl -fsSL https://rclone.org/install.sh | bash \
     && rm -rf /var/lib/apt/lists/*
 
-# copy fonts ke FONTCONFIG PATH
+# fonts
 COPY fonts /usr/share/fonts/truetype/custom
 RUN fc-cache -fv
 
@@ -19,7 +22,7 @@ RUN fc-cache -fv
 COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# copy app
+# app
 COPY api /app
 
 ENV PYTHONPATH=/app
