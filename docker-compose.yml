@@ -11,5 +11,6 @@ services:
       - ./data:/app/data
       - ./fonts:/app/fonts
       - ./api/credentials:/app/api/credentials
+      - ./tmp:/app/tmp   # ⬅️ INI PENTING
     environment:
       - TZ=Asia/Jakarta
