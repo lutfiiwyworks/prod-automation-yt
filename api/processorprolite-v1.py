@@ -72,7 +72,23 @@ def generate_viral_subs(audio_path, output_subs):
     model = WhisperModel("base", device="cpu", compute_type="int8")
     segments, _ = model.transcribe(audio_path, word_timestamps=True)
 
-    ass_header = """[Script Info]
+    # ======================
+    # TREND COLOR PALETTES
+    # ======================
+    color_styles = [
+        # (PrimaryColour, OutlineColour)
+        ("&H0000FFFF", "&H00000000"),  # Yellow text, black outline
+        ("&H00FFFFFF", "&H00000000"),  # White text, black outline
+        ("&H0000FF00", "&H00000000"),  # Neon green
+        ("&H00FFFF00", "&H00000000"),  # Cyan
+        ("&H000000FF", "&H00000000"),  # Red
+        ("&H00FF00FF", "&H00000000"),  # Purple
+        ("&H0000A5FF", "&H00000000"),  # Orange
+    ]
+
+    primary, outline = random.choice(color_styles)
+
+    ass_header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
@@ -80,7 +96,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Spk0,League Spartan,125,&H0000FF00,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,15,0,2,10,10,850,1
+Style: Spk0,League Spartan,120,{primary},&H000000FF,{outline},&H64000000,-1,0,0,0,100,100,0,0,1,10,3,2,10,10,400,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -88,20 +104,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     with open(output_subs, "w", encoding="utf-8") as f:
         f.write(ass_header)
+
         for seg in segments:
             for w in seg.words:
                 if not w.word.strip():
                     continue
+
                 start = format_time_ass(w.start)
                 end = format_time_ass(w.end)
                 text = w.word.strip().upper()
-                anim = r"{\fscx80\fscy80\t(0,80,\fscx100\fscy100)}"
+
+                # Simple pop animation (aman & clean)
+                anim = r"{\fscx85\fscy85\t(0,80,\fscx100\fscy100)}"
+
                 f.write(
                     f"Dialogue: 0,{start},{end},Spk0,,0,0,0,,{anim}{text}\n"
                 )
 
     print(f"✅ Subtitle saved: {output_subs}")
-
 # =========================
 # 🎥 CINEMA CAMERA
 # =========================

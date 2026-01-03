@@ -1,17 +1,16 @@
 services:
   api:
-    build:
-      context: .
-      dockerfile: api/Dockerfile
+    image: prod-automation-yt-api:latest
     container_name: yt-api
     restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
+      - ./:/app                # ⬅️ INI PENTING (CODE)
       - ./data:/app/data
       - ./fonts:/app/fonts
       - ./api/credentials:/app/api/credentials
-      - ./tmp:/app/tmp   # ⬅️ INI PENTING
-      - /root/rclone.conf:/root/.config/rclone/rclone.conf
+      - ./tmp:/app/tmp
+      - /root/.config/rclone:/root/.config/rclone:ro
     environment:
       - TZ=Asia/Jakarta
