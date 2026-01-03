@@ -9,4 +9,5 @@ DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 DRIVE_CREDENTIALS_PATH = "/app/api/credentials/drive_sa.json"
 
 # default upload folder (isi folder ID Drive lu)
-DRIVE_UPLOAD_FOLDER_ID = "final"
+DRIVE_UPLOAD_FOLDER_ID = "1Ppjh-jhnVB68Jy6LyPe2G7KcChquHwTT"
+
