@@ -48,9 +48,9 @@ def download_file(url, out_path):
     os.rename(tmp, out_path)
 
 # ==================================================
-# DURATION
+# AUDIO DURATION (SINGLE SOURCE OF TRUTH)
 # ==================================================
-def get_duration(path):
+def get_audio_duration(path):
     out = subprocess.check_output(
         [
             "ffprobe",
@@ -63,12 +63,9 @@ def get_duration(path):
     return float(out)
 
 # ==================================================
-# CUT VIDEO (VISUAL ONLY, FULL TRANSCODE HQ)
+# CUT VIDEO (VISUAL ONLY, FOLLOW AUDIO DURATION)
 # ==================================================
-def cut_video_visual_only(src, out, start, end):
-    duration = get_duration(src)
-    safe_end = min(end, duration - 0.2)
-    dur = safe_end - start
+def cut_video_visual_only(src, out, start, dur):
     if dur <= 0:
         raise ValueError("invalid video cut duration")
 
@@ -82,11 +79,11 @@ def cut_video_visual_only(src, out, start, end):
             "-t", str(dur),
 
             "-map", "0:v:0",
-            "-an",  # 🔥 buang audio video sepenuhnya
+            "-an",  # ❌ buang audio video
 
             "-c:v", "libx264",
-            "-preset", "slow",     # quality > speed
-            "-crf", "16",           # HQ
+            "-preset", "slow",     # quality-first
+            "-crf", "16",
             "-pix_fmt", "yuv420p",
             "-movflags", "+faststart",
 
@@ -96,12 +93,9 @@ def cut_video_visual_only(src, out, start, end):
     )
 
 # ==================================================
-# CUT AUDIO (SOURCE OF TRUTH, NO FILTER HERE)
+# CUT AUDIO (SOURCE OF TRUTH)
 # ==================================================
-def cut_audio(src, out, start, end):
-    duration = get_duration(src)
-    safe_end = min(end, duration - 0.2)
-    dur = safe_end - start
+def cut_audio(src, out, start, dur):
     if dur <= 0:
         raise ValueError("invalid audio cut duration")
 
@@ -114,7 +108,7 @@ def cut_audio(src, out, start, end):
 
             "-ar", "16000",
             "-ac", "1",
-            "-c:a", "wavpack",   # lossless, biar processorprolite kerja optimal
+            "-c:a", "wavpack",   # lossless for processorprolite
 
             out,
         ],
@@ -122,7 +116,7 @@ def cut_audio(src, out, start, end):
     )
 
 # ==================================================
-# PROCESS AUDIO (processorprolite = EQ + COMPAND + LOUDNORM)
+# PROCESS (processorprolite: EQ + COMPAND + LOUDNORM)
 # ==================================================
 def run_processor(video_cut, audio_cut, out_video):
     subprocess.run(
@@ -171,16 +165,26 @@ def process_job(job_id, video_url, audio_url, start, end):
         download_file(video_url, video_raw)
         download_file(audio_url, audio_raw)
 
-        # 2️⃣ CUT
-        write_state(job_id, "cutting")
-        cut_video_visual_only(video_raw, video_cut, start, end)
-        cut_audio(audio_raw, audio_cut, start, end)
+        # 2️⃣ DURATION FROM AUDIO ONLY
+        audio_duration = get_audio_duration(audio_raw)
 
-        # 3️⃣ PROCESS (AUDIO FILTERS + LOUDNORM ADA DI processorprolite)
+        if start >= audio_duration:
+            raise ValueError("start >= audio duration")
+
+        dur = min(end - start, audio_duration - start)
+        if dur <= 0:
+            raise ValueError("invalid final duration")
+
+        # 3️⃣ CUT
+        write_state(job_id, "cutting")
+        cut_video_visual_only(video_raw, video_cut, start, dur)
+        cut_audio(audio_raw, audio_cut, start, dur)
+
+        # 4️⃣ PROCESS (AUDIO FILTERS INSIDE processorprolite)
         write_state(job_id, "processing")
         run_processor(video_cut, audio_cut, final)
 
-        # 4️⃣ UPLOAD
+        # 5️⃣ UPLOAD
         write_state(job_id, "uploading")
         upload_with_rclone(final, RCLONE_REMOTE)
 
@@ -189,21 +193,4 @@ def process_job(job_id, video_url, audio_url, start, end):
         return {
             "status": "done",
             "file": os.path.basename(final),
-            "remote": RCLONE_REMOTE,
-        }
-
-    except Exception as e:
-        write_state(job_id, f"error: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-        }
-
-    finally:
-        # cleanup only if success
-        try:
-            if os.path.exists(state_path(job_id)):
-                if open(state_path(job_id)).read() == "done":
-                    shutil.rmtree(job_dir(job_id), ignore_errors=True)
-        except Exception:
-            pass
+            "remo
