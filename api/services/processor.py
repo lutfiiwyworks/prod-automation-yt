@@ -18,17 +18,21 @@ def job_dir(job_id):
     os.makedirs(base, exist_ok=True)
     return base
 
+
 def stage_path(job_id, stage, filename):
     path = f"{job_dir(job_id)}/{stage}"
     os.makedirs(path, exist_ok=True)
     return f"{path}/{filename}"
 
+
 def state_path(job_id):
     return f"{job_dir(job_id)}/job.state"
+
 
 def write_state(job_id, state):
     with open(state_path(job_id), "w") as f:
         f.write(state)
+
 
 # ==================================================
 # DOWNLOAD (ATOMIC)
@@ -47,6 +51,7 @@ def download_file(url, out_path):
 
     os.rename(tmp, out_path)
 
+
 # ==================================================
 # AUDIO DURATION (SINGLE SOURCE OF TRUTH)
 # ==================================================
@@ -61,6 +66,7 @@ def get_audio_duration(path):
         ]
     )
     return float(out)
+
 
 # ==================================================
 # CUT VIDEO (VISUAL ONLY, FOLLOW AUDIO DURATION)
@@ -79,10 +85,10 @@ def cut_video_visual_only(src, out, start, dur):
             "-t", str(dur),
 
             "-map", "0:v:0",
-            "-an",  # ❌ buang audio video
+            "-an",
 
             "-c:v", "libx264",
-            "-preset", "slow",     # quality-first
+            "-preset", "slow",
             "-crf", "16",
             "-pix_fmt", "yuv420p",
             "-movflags", "+faststart",
@@ -91,6 +97,7 @@ def cut_video_visual_only(src, out, start, dur):
         ],
         check=True,
     )
+
 
 # ==================================================
 # CUT AUDIO (SOURCE OF TRUTH)
@@ -108,15 +115,16 @@ def cut_audio(src, out, start, dur):
 
             "-ar", "16000",
             "-ac", "1",
-            "-c:a", "wavpack",   # lossless for processorprolite
+            "-c:a", "wavpack",
 
             out,
         ],
         check=True,
     )
 
+
 # ==================================================
-# PROCESS (processorprolite: EQ + COMPAND + LOUDNORM)
+# PROCESS (processorprolite)
 # ==================================================
 def run_processor(video_cut, audio_cut, out_video):
     subprocess.run(
@@ -129,6 +137,7 @@ def run_processor(video_cut, audio_cut, out_video):
         ],
         check=True,
     )
+
 
 # ==================================================
 # UPLOAD
@@ -146,10 +155,13 @@ def upload_with_rclone(local_file, remote_dir):
         check=True,
     )
 
+
 # ==================================================
 # MAIN ENTRY
 # ==================================================
 def process_job(job_id, video_url, audio_url, start, end):
+    base = job_dir(job_id)
+
     try:
         write_state(job_id, "downloading")
 
@@ -165,9 +177,8 @@ def process_job(job_id, video_url, audio_url, start, end):
         download_file(video_url, video_raw)
         download_file(audio_url, audio_raw)
 
-        # 2️⃣ DURATION FROM AUDIO ONLY
+        # 2️⃣ AUDIO IS SOURCE OF TRUTH
         audio_duration = get_audio_duration(audio_raw)
-
         if start >= audio_duration:
             raise ValueError("start >= audio duration")
 
@@ -180,7 +191,7 @@ def process_job(job_id, video_url, audio_url, start, end):
         cut_video_visual_only(video_raw, video_cut, start, dur)
         cut_audio(audio_raw, audio_cut, start, dur)
 
-        # 4️⃣ PROCESS (AUDIO FILTERS INSIDE processorprolite)
+        # 4️⃣ PROCESS
         write_state(job_id, "processing")
         run_processor(video_cut, audio_cut, final)
 
@@ -193,4 +204,16 @@ def process_job(job_id, video_url, audio_url, start, end):
         return {
             "status": "done",
             "file": os.path.basename(final),
-            "remo
+            "remote": RCLONE_REMOTE,
+        }
+
+    except Exception as e:
+        write_state(job_id, f"error: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+        }
+
+    finally:
+        if os.path.exists(base):
+            shutil.rmtree(base, ignore_errors=True)
