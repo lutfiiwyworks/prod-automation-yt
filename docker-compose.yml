@@ -6,7 +6,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./:/app                # ⬅️ INI PENTING (CODE)
+      - ./:/app
       - ./data:/app/data
       - ./fonts:/app/fonts
       - ./api/credentials:/app/api/credentials
