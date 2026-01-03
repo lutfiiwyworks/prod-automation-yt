@@ -12,5 +12,6 @@ services:
       - ./fonts:/app/fonts
       - ./api/credentials:/app/api/credentials
       - ./tmp:/app/tmp   # ⬅️ INI PENTING
+      - /root/rclone.conf:/root/.config/rclone/rclone.conf
     environment:
       - TZ=Asia/Jakarta

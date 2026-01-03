@@ -6,15 +6,8 @@ from core.config import (
     TMP_DIR,
     PYTHON_BIN,
     PROCESSOR_SCRIPT,
-    DRIVE_SCOPES,
-    DRIVE_CREDENTIALS_PATH,
-    DRIVE_UPLOAD_FOLDER_ID,
+    RCLONE_REMOTE,
 )
-
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-
 
 # ======================
 # JOB STATE
@@ -35,10 +28,10 @@ def read_state(job_id):
 
 
 # ======================
-# DOWNLOAD DRIVE (PUBLIC LINK)
+# DOWNLOAD FILE (PUBLIC LINK)
 # ======================
-def download_drive(url, out_path):
-    with requests.get(url, stream=True, timeout=120) as r:
+def download_file(url, out_path):
+    with requests.get(url, stream=True, timeout=300) as r:
         r.raise_for_status()
         with open(out_path, "wb") as f:
             for chunk in r.iter_content(1024 * 1024):
@@ -52,7 +45,7 @@ def download_drive(url, out_path):
 def cut_video(src, out, start, end):
     dur = end - start
     if dur <= 0:
-        raise ValueError("absolute_end must be greater than absolute_start")
+        raise ValueError("end must be greater than start")
 
     subprocess.run(
         [
@@ -70,12 +63,12 @@ def cut_video(src, out, start, end):
 
 
 # ======================
-# CUT AUDIO (MASTER AUDIO)
+# CUT AUDIO
 # ======================
 def cut_audio(src, out, start, end):
     dur = end - start
     if dur <= 0:
-        raise ValueError("absolute_end must be greater than absolute_start")
+        raise ValueError("end must be greater than start")
 
     subprocess.run(
         [
@@ -94,9 +87,6 @@ def cut_audio(src, out, start, end):
 
 # ======================
 # RUN PROCESSORPROLITE
-# processorprolite-v1.py
-# expects:
-#   python script.py <input_video> <input_audio> <output_video>
 # ======================
 def run_processor(input_video, input_audio, output_video):
     subprocess.run(
@@ -112,37 +102,20 @@ def run_processor(input_video, input_audio, output_video):
 
 
 # ======================
-# UPLOAD TO GOOGLE DRIVE
+# UPLOAD VIA RCLONE (OAUTH USER)
 # ======================
-def upload_to_drive(file_path):
-    creds = Credentials.from_service_account_file(
-        DRIVE_CREDENTIALS_PATH,
-        scopes=DRIVE_SCOPES,
+def upload_with_rclone(local_file, remote_dir):
+    subprocess.run(
+        [
+            "rclone",
+            "move",
+            local_file,
+            remote_dir,
+            "--progress",
+            "--transfers", "1",
+        ],
+        check=True,
     )
-
-    service = build("drive", "v3", credentials=creds)
-
-    metadata = {
-        "name": os.path.basename(file_path),
-        "parents": [DRIVE_UPLOAD_FOLDER_ID],
-    }
-
-    media = MediaFileUpload(file_path, resumable=True)
-
-    result = (
-        service.files()
-        .create(
-            body=metadata,
-            media_body=media,
-            fields="id,webViewLink",
-        )
-        .execute()
-    )
-
-    return {
-        "file_id": result["id"],
-        "webViewLink": result.get("webViewLink"),
-    }
 
 
 # ======================
@@ -160,30 +133,37 @@ def process_job(job_id, video_url, audio_url, start, end):
     try:
         write_state(job_id, "running")
 
-        # 1️⃣ download video & audio (FULL)
-        download_drive(video_url, video_raw)
-        download_drive(audio_url, audio_raw)
+        # 1️⃣ DOWNLOAD VIDEO & AUDIO
+        download_file(video_url, video_raw)
+        download_file(audio_url, audio_raw)
 
-        # 2️⃣ cut video & audio (TIMESTAMP SAMA)
+        # 2️⃣ CUT VIDEO & AUDIO
         cut_video(video_raw, video_cut, start, end)
         cut_audio(audio_raw, audio_cut, start, end)
 
-        # 3️⃣ run processor (subtitle + tracking + final mux)
+        # 3️⃣ PROCESS (SUBTITLE + TRACKING + FINAL RENDER)
         run_processor(video_cut, audio_cut, final)
 
-        # 4️⃣ upload result to Drive
-        drive_result = upload_to_drive(final)
+        # 4️⃣ UPLOAD RESULT VIA RCLONE
+        upload_with_rclone(final, RCLONE_REMOTE)
 
         write_state(job_id, "done")
 
-        return drive_result
+        return {
+            "status": "done",
+            "remote": RCLONE_REMOTE,
+            "file": os.path.basename(final),
+        }
 
     except Exception as e:
-        write_state(job_id, "error")
-        raise e
+        write_state(job_id, f"error: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+        }
 
     finally:
-        # cleanup temp files
+        # cleanup temp files (KEEP final if upload failed)
         for p in [
             video_raw,
             video_cut,

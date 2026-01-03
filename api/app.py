@@ -26,6 +26,8 @@ def process(req: ProcessRequest):
 
     return {
         "job_id": req.job_id,
-        "drive_file_id": result["file_id"],
-        "drive_link": result["webViewLink"],
+        "status": result["status"],
+        "remote": result.get("remote"),
+        "file": result.get("file"),
+        "error": result.get("error"),
     }
