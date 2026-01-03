@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from services.processor import process_job, read_state
+from api.processor import process_job, read_state
 
 app = FastAPI()
 

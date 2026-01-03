@@ -2,58 +2,60 @@ import os
 import subprocess
 import requests
 import time
+import shutil
 
-from core.config import (
+from api.core.config import (
     TMP_DIR,
     PYTHON_BIN,
     PROCESSOR_SCRIPT,
     RCLONE_REMOTE,
 )
 
-# ======================
-# JOB STATE
-# ======================
-def state_path(job_id):
-    return f"{TMP_DIR}/{job_id}.state"
+# ==================================================
+# PATH HELPERS
+# ==================================================
+def job_dir(job_id):
+    base = f"{TMP_DIR}/{job_id}"
+    os.makedirs(base, exist_ok=True)
+    return base
 
+def stage_path(job_id, stage, filename):
+    path = f"{job_dir(job_id)}/{stage}"
+    os.makedirs(path, exist_ok=True)
+    return f"{path}/{filename}"
+
+def state_path(job_id):
+    return f"{job_dir(job_id)}/job.state"
 
 def write_state(job_id, state):
     with open(state_path(job_id), "w") as f:
         f.write(state)
 
-
-def read_state(job_id):
-    if not os.path.exists(state_path(job_id)):
-        return None
-    return open(state_path(job_id)).read().strip()
-
-
-# ======================
-# SAFE DOWNLOAD (BLOCKING)
-# ======================
+# ==================================================
+# DOWNLOAD (ATOMIC)
+# ==================================================
 def download_file(url, out_path):
-    tmp_path = out_path + ".part"
+    tmp = out_path + ".part"
 
     with requests.get(url, stream=True, timeout=300) as r:
         r.raise_for_status()
-        with open(tmp_path, "wb") as f:
+        with open(tmp, "wb") as f:
             for chunk in r.iter_content(1024 * 1024):
                 if chunk:
                     f.write(chunk)
                     f.flush()
                     os.fsync(f.fileno())
 
-    os.rename(tmp_path, out_path)
+    os.rename(tmp, out_path)
 
-
-# ======================
-# VALIDATE MP4
-# ======================
-def assert_valid_mp4(path, retry=5, wait=2):
+# ==================================================
+# VALIDATION
+# ==================================================
+def assert_valid_video(path, retry=5):
     for i in range(retry):
         try:
             subprocess.run(
-                ["ffprobe", "-v", "error", path],
+                ["ffprobe", "-v", "error", "-select_streams", "v", path],
                 check=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -62,8 +64,15 @@ def assert_valid_mp4(path, retry=5, wait=2):
         except subprocess.CalledProcessError:
             if i == retry - 1:
                 raise RuntimeError(f"Invalid MP4 (moov atom missing): {path}")
-            time.sleep(wait)
+            time.sleep(1)
 
+def assert_valid_audio(path):
+    subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a", path],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 def get_duration(path):
     out = subprocess.check_output(
@@ -77,57 +86,60 @@ def get_duration(path):
     )
     return float(out)
 
-
-# ======================
-# CUT VIDEO (SAFE)
-# ======================
-def cut_video(src, out, start, end):
-    duration = get_duration(src)
-
-    if start >= duration:
-        raise ValueError("start >= video duration")
-
-    safe_end = min(end, duration - 0.2)
-    dur = safe_end - start
-
-    if dur <= 0:
-        raise ValueError("invalid cut duration")
-
+# ==================================================
+# FIX MOOV ATOM
+# ==================================================
+def fix_moov(src, out):
     subprocess.run(
         [
             "ffmpeg", "-y",
             "-i", src,
-            "-ss", str(start),
-            "-t", str(dur),
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-pix_fmt", "yuv420p",
+            "-c", "copy",
+            "-movflags", "+faststart",
             out,
         ],
         check=True,
     )
 
-
-# ======================
-# CUT AUDIO
-# ======================
-def cut_audio(src, out, start, end):
+# ==================================================
+# CUT MEDIA
+# ==================================================
+def cut_video(src, out, start, end):
     duration = get_duration(src)
-
-    if start >= duration:
-        raise ValueError("start >= audio duration")
-
     safe_end = min(end, duration - 0.2)
     dur = safe_end - start
-
     if dur <= 0:
-        raise ValueError("invalid audio cut duration")
+        raise ValueError("invalid video cut")
 
     subprocess.run(
         [
             "ffmpeg", "-y",
-            "-i", src,
             "-ss", str(start),
+            "-i", src,
+            "-t", str(dur),
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "18",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-c:a", "aac",
+            out,
+        ],
+        check=True,
+    )
+
+def cut_audio(src, out, start, end):
+    duration = get_duration(src)
+    safe_end = min(end, duration - 0.2)
+    dur = safe_end - start
+    if dur <= 0:
+        raise ValueError("invalid audio cut")
+
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-ss", str(start),
+            "-i", src,
             "-t", str(dur),
             "-ar", "16000",
             "-ac", "1",
@@ -137,26 +149,18 @@ def cut_audio(src, out, start, end):
         check=True,
     )
 
-
-# ======================
-# RUN PROCESSOR
-# ======================
-def run_processor(input_video, input_audio, output_video):
+# ==================================================
+# PROCESSOR
+# ==================================================
+def run_processor(video, audio, out):
     subprocess.run(
-        [
-            PYTHON_BIN,
-            PROCESSOR_SCRIPT,
-            input_video,
-            input_audio,
-            output_video,
-        ],
+        [PYTHON_BIN, PROCESSOR_SCRIPT, video, audio, out],
         check=True,
     )
 
-
-# ======================
-# UPLOAD VIA RCLONE
-# ======================
+# ==================================================
+# UPLOAD
+# ==================================================
 def upload_with_rclone(local_file, remote_dir):
     subprocess.run(
         [
@@ -166,44 +170,46 @@ def upload_with_rclone(local_file, remote_dir):
             remote_dir,
             "--transfers", "1",
             "--checkers", "1",
-            "--progress",
         ],
         check=True,
     )
 
-
-# ======================
+# ==================================================
 # MAIN JOB
-# ======================
+# ==================================================
 def process_job(job_id, video_url, audio_url, start, end):
-    video_raw = f"{TMP_DIR}/{job_id}_video_raw.mp4"
-    video_cut = f"{TMP_DIR}/{job_id}_video_cut.mp4"
-
-    audio_raw = f"{TMP_DIR}/{job_id}_audio_raw.wav"
-    audio_cut = f"{TMP_DIR}/{job_id}_audio_cut.wav"
-
-    final = f"{TMP_DIR}/{job_id}_final.mp4"
-
     try:
         write_state(job_id, "downloading")
+
+        video_raw   = stage_path(job_id, "input", "video.mp4")
+        audio_raw   = stage_path(job_id, "input", "audio.wav")
+
+        video_fixed = stage_path(job_id, "fixed", "video.mp4")
+
+        video_cut   = stage_path(job_id, "cut", "video.mp4")
+        audio_cut   = stage_path(job_id, "cut", "audio.wav")
+
+        final       = stage_path(job_id, "final", "output.mp4")
 
         # 1️⃣ DOWNLOAD
         download_file(video_url, video_raw)
         download_file(audio_url, audio_raw)
 
-        # 2️⃣ VALIDATE (ANTI moov atom bug)
+        # 2️⃣ FIX + VALIDATE
         write_state(job_id, "validating")
-        assert_valid_mp4(video_raw)
-        assert_valid_mp4(audio_raw)
+        fix_moov(video_raw, video_fixed)
+        assert_valid_video(video_fixed)
+        assert_valid_audio(audio_raw)
 
         # 3️⃣ CUT
         write_state(job_id, "cutting")
-        cut_video(video_raw, video_cut, start, end)
+        cut_video(video_fixed, video_cut, start, end)
         cut_audio(audio_raw, audio_cut, start, end)
 
         # 4️⃣ PROCESS
         write_state(job_id, "processing")
         run_processor(video_cut, audio_cut, final)
+        assert_valid_video(final)
 
         # 5️⃣ UPLOAD
         write_state(job_id, "uploading")
@@ -213,19 +219,15 @@ def process_job(job_id, video_url, audio_url, start, end):
 
         return {
             "status": "done",
-            "remote": RCLONE_REMOTE,
             "file": os.path.basename(final),
+            "remote": RCLONE_REMOTE,
         }
 
     except Exception as e:
         write_state(job_id, f"error: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-        }
+        return {"status": "error", "error": str(e)}
 
     finally:
-        # cleanup intermediates only
-        for p in [video_raw, video_cut, audio_raw, audio_cut]:
-            if os.path.exists(p):
-                os.remove(p)
+        # cleanup only on success
+        if read_state := open(state_path(job_id)).read().startswith("done"):
+            shutil.rmtree(job_dir(job_id), ignore_errors=True)
