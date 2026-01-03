@@ -1,6 +1,8 @@
 services:
   api:
-    image: prod-automation-yt-api:latest
+    build:
+      context: .
+      dockerfile: api/Dockerfile
     container_name: yt-api
     restart: unless-stopped
     ports:
